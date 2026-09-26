@@ -1,0 +1,14 @@
+{
+  "name": "nestgadget-ai-sales-agent",
+  "version": "1.0.0",
+  "description": "AI-powered Messenger sales agent for NestGadget BD",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5"
+  }
+}
