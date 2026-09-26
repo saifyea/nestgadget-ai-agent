@@ -88,14 +88,26 @@ async function handleUserMessage(senderId, userText) {
       }
     );
 
-    const replyText = response.data.content
+    let replyText = response.data.content
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
       .join('\n');
 
-    console.log(`AI reply for ${senderId}: ${replyText}`);
+    const wantsPhoto = replyText.includes('[PHOTO]');
+    replyText = replyText.replace('[PHOTO]', '').trim();
+
+    console.log(`AI reply for ${senderId}: ${replyText} (photo: ${wantsPhoto})`);
     conversations[senderId].push({ role: 'assistant', content: replyText });
     await sendMessengerMessage(senderId, replyText);
+
+    if (wantsPhoto && Array.isArray(productKnowledge.photo_urls)) {
+      for (const url of productKnowledge.photo_urls) {
+        if (url && url.startsWith('http')) {
+          await sendMessengerImage(senderId, url);
+        }
+      }
+    }
+
     console.log(`Sent to Messenger successfully for ${senderId}`);
   } catch (err) {
     console.error('AI or send error:', err.response?.data || err.message);
@@ -113,6 +125,11 @@ function buildSystemPrompt() {
 ${JSON.stringify(productKnowledge, null, 2)}
 
 নিয়ম:
+- কাস্টমার প্রোডাক্টের ছবি/ফটো দেখতে চাইলে, তোমার রিপ্লাই টেক্সটের একদম শেষে নতুন লাইনে ঠিক এই ট্যাগটা লিখো: [PHOTO] (এই ট্যাগ কাস্টমার দেখবে না, এটা শুধু সিস্টেমের জন্য একটা সংকেত)
+- নিচের "faq" লিস্টে যদি কাস্টমারের প্রশ্নের কাছাকাছি কোনো প্রশ্ন থাকে, তাহলে সেই নির্দিষ্ট answer-টাই ব্যবহার করো (নিজের ভাষায় সামান্য মানিয়ে বলতে পারো, কিন্তু মূল বক্তব্য বদলো না)
+- faq-তে না থাকলে product তথ্য থেকে উত্তর বানাও
+- কেউ প্রথমবার শুধু "হাই/হ্যালো/শুরু করি" টাইপ মেসেজ দিলে "greeting" টেক্সট দিয়ে শুরু করো
+- কখনো মার্কডাউন ফরম্যাটিং ব্যবহার কোরো না (যেমন **বোল্ড**, ~~স্ট্রাইকথ্রু~~, # হেডিং) — Messenger এগুলো রেন্ডার করে না, শুধু সাধারণ প্লেইন টেক্সট লেখো
 - দাম, ফিচার, ডেলিভারি সংক্রান্ত প্রশ্নের উত্তর শুধু উপরের তথ্য থেকে দাও, নিজে থেকে বানিয়ে বোলো না
 - COD (Cash on Delivery) অফার করা হয় — প্রাসঙ্গিক হলে উল্লেখ করো
 - কাস্টমার অর্ডার করতে চাইলে নাম, ফোন নম্বর ও ঠিকানা চেয়ে নাও
@@ -127,6 +144,21 @@ async function sendMessengerMessage(senderId, text) {
     {
       recipient: { id: senderId },
       message: { text },
+    }
+  );
+}
+
+async function sendMessengerImage(senderId, imageUrl) {
+  await axios.post(
+    `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`,
+    {
+      recipient: { id: senderId },
+      message: {
+        attachment: {
+          type: 'image',
+          payload: { url: imageUrl, is_reusable: true },
+        },
+      },
     }
   );
 }
