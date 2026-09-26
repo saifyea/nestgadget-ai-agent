@@ -10,6 +10,7 @@ app.use(express.json());
 const VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const ORDER_WEBHOOK_URL = process.env.ORDER_WEBHOOK_URL;
 
 const productKnowledge = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'product-knowledge.json'), 'utf8')
@@ -96,7 +97,22 @@ async function handleUserMessage(senderId, userText) {
     const wantsPhoto = replyText.includes('[PHOTO]');
     replyText = replyText.replace('[PHOTO]', '').trim();
 
-    console.log(`AI reply for ${senderId}: ${replyText} (photo: ${wantsPhoto})`);
+    const orderMatch = replyText.match(/\[ORDER_DATA\]([\s\S]*?)\[\/ORDER_DATA\]/);
+    if (orderMatch) {
+      replyText = replyText.replace(orderMatch[0], '').trim();
+      const fields = {};
+      orderMatch[1].split('\n').forEach((line) => {
+        const [key, ...rest] = line.split(':');
+        if (key && rest.length) {
+          fields[key.trim().toLowerCase()] = rest.join(':').trim();
+        }
+      });
+      saveOrder(senderId, fields).catch((err) =>
+        console.error('Order webhook error:', err.response?.data || err.message)
+      );
+    }
+
+    console.log(`AI reply for ${senderId}: ${replyText} (photo: ${wantsPhoto}, order: ${!!orderMatch})`);
     conversations[senderId].push({ role: 'assistant', content: replyText });
     await sendMessengerMessage(senderId, replyText);
 
@@ -125,6 +141,14 @@ function buildSystemPrompt() {
 ${JSON.stringify(productKnowledge, null, 2)}
 
 নিয়ম:
+- কাস্টমার অর্ডার করতে চাইলে নাম, ফোন নম্বর ও ঠিকানা চেয়ে নাও
+- এই তিনটা তথ্যই (নাম, ফোন, ঠিকানা) পাওয়ার পর, স্বাভাবিক কনফার্মেশন রিপ্লাইয়ের একদম শেষে নতুন লাইনে ঠিক এই ফরম্যাটে একটা ব্লক যোগ করো (কাস্টমার এটা দেখবে না, এটা সিস্টেমের জন্য):
+[ORDER_DATA]
+name: <নাম>
+phone: <ফোন নম্বর>
+address: <ঠিকানা>
+[/ORDER_DATA]
+এই ব্লক শুধু একবারই দাও, ঠিক যখন তিনটা তথ্যই কনফার্ম হয়েছে — এর আগে বা প্রতি মেসেজে দিও না
 - কাস্টমার প্রোডাক্টের ছবি/ফটো দেখতে চাইলে, তোমার রিপ্লাই টেক্সটের একদম শেষে নতুন লাইনে ঠিক এই ট্যাগটা লিখো: [PHOTO] (এই ট্যাগ কাস্টমার দেখবে না, এটা শুধু সিস্টেমের জন্য একটা সংকেত)
 - নিচের "faq" লিস্টে যদি কাস্টমারের প্রশ্নের কাছাকাছি কোনো প্রশ্ন থাকে, তাহলে সেই নির্দিষ্ট answer-টাই ব্যবহার করো (নিজের ভাষায় সামান্য মানিয়ে বলতে পারো, কিন্তু মূল বক্তব্য বদলো না)
 - faq-তে না থাকলে product তথ্য থেকে উত্তর বানাও
@@ -161,6 +185,21 @@ async function sendMessengerImage(senderId, imageUrl) {
       },
     }
   );
+}
+
+async function saveOrder(senderId, fields) {
+  if (!ORDER_WEBHOOK_URL) {
+    console.log('ORDER_WEBHOOK_URL not set — skipping order save. Fields were:', fields);
+    return;
+  }
+  await axios.post(ORDER_WEBHOOK_URL, {
+    senderId,
+    name: fields.name || '',
+    phone: fields.phone || '',
+    address: fields.address || '',
+    product: productKnowledge.product_name,
+  });
+  console.log(`Order saved for ${senderId}`);
 }
 
 const PORT = process.env.PORT || 3000;
