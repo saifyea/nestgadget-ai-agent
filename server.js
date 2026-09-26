@@ -37,6 +37,7 @@ app.get('/webhook', (req, res) => {
 // --- Incoming messages (Facebook calls this with POST) ---
 app.post('/webhook', async (req, res) => {
   const body = req.body;
+  console.log('POST /webhook received:', JSON.stringify(body));
 
   if (body.object === 'page') {
     for (const entry of body.entry) {
@@ -44,14 +45,18 @@ app.post('/webhook', async (req, res) => {
       const senderId = webhookEvent.sender.id;
 
       if (webhookEvent.message && webhookEvent.message.text) {
+        console.log(`Message from ${senderId}: ${webhookEvent.message.text}`);
         // Don't await here — Facebook expects a fast 200 response.
         handleUserMessage(senderId, webhookEvent.message.text).catch((err) =>
           console.error('handleUserMessage error:', err.message)
         );
+      } else {
+        console.log('Event received but no message.text field:', JSON.stringify(webhookEvent));
       }
     }
     res.status(200).send('EVENT_RECEIVED');
   } else {
+    console.log('Ignored non-page event:', JSON.stringify(body));
     res.sendStatus(404);
   }
 });
@@ -88,8 +93,10 @@ async function handleUserMessage(senderId, userText) {
       .map((block) => block.text)
       .join('\n');
 
+    console.log(`AI reply for ${senderId}: ${replyText}`);
     conversations[senderId].push({ role: 'assistant', content: replyText });
     await sendMessengerMessage(senderId, replyText);
+    console.log(`Sent to Messenger successfully for ${senderId}`);
   } catch (err) {
     console.error('AI or send error:', err.response?.data || err.message);
     await sendMessengerMessage(
